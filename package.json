@@ -1,0 +1,16 @@
+{
+  "name": "followcam-signaling",
+  "version": "1.0.0",
+  "description": "WebRTC signaling server for FollowCam",
+  "main": "signaling-server.js",
+  "scripts": {
+    "start": "node signaling-server.js",
+    "dev": "node signaling-server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "keywords": ["webrtc", "signaling", "websocket"],
+  "author": "",
+  "license": "AGPL-3.0"
+}

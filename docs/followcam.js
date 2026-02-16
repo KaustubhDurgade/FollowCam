@@ -6,7 +6,11 @@ const FollowCam = (() => {
   "use strict";
 
   // ── Config ──────────────────────────────────────────────────
-  const WSS_URL = "wss://wss.vdo.ninja:443";
+  // Use local server by default, fallback to VDO.Ninja
+  const WSS_URL = new URLSearchParams(window.location.search).get("wss") 
+    || (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+      ? "ws://localhost:8443"
+      : "wss://wss.vdo.ninja:443";
 
   const STUN_SERVERS = [
     { urls: ["stun:stun.l.google.com:19302", "stun:stun.cloudflare.com:3478"] }

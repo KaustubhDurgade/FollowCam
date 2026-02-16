@@ -111,6 +111,12 @@ const FollowCam = (() => {
         clearTimeout(connectTimeout);
         log("✓ WebSocket connected to:", WSS_URL);
         onStatusChange("connecting");
+        
+        // Send initial message to trigger server response
+        // VDO.Ninja server expects some initial message to assign UUID
+        ws.send(JSON.stringify({ request: "hello" }));
+        log("→ Sent hello to server");
+        
         // Wait for server to assign UUID before sending requests
         resolve();
       };
@@ -150,6 +156,8 @@ const FollowCam = (() => {
 
   // ── Signaling Message Handler ──────────────────────────────
   function handleSignalingMessage(msg) {
+    log("Processing message, keys:", Object.keys(msg).join(","));
+    
     // Server assigns us a UUID on connect
     if (msg.UUID && !msg.description && !msg.candidate && !msg.request) {
       myUUID = msg.UUID;

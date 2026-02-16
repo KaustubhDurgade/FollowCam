@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>FollowCam</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .landing .subtitle { font-size: 1rem; color: var(--text-dim); margin-top: -0.5rem; }
+    .landing .how {
+      margin-top: 1rem;
+      padding: 1rem;
+      background: var(--surface);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      max-width: 420px;
+      text-align: left;
+    }
+    .landing .how h3 { font-size: 0.85rem; color: var(--accent); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.08em; }
+    .landing .how ol { padding-left: 1.2rem; color: var(--text-dim); font-size: 0.9rem; line-height: 1.8; }
+    .landing .how ol strong { color: var(--text); }
+  </style>
+</head>
+<body>
+  <div class="landing">
+    <h1>Follow<span>Cam</span></h1>
+    <p class="subtitle">Stream 2K 60fps from your iPhone to any browser</p>
+
+    <div class="session-setup">
+      <label for="sessionInput">Session ID</label>
+      <input type="text" id="sessionInput" placeholder="e.g. mycamera" autocomplete="off" spellcheck="false">
+      <div class="btn-row">
+        <a href="#" class="btn btn-send" id="goSend">📷 Send</a>
+        <a href="#" class="btn btn-view" id="goView">🖥 View</a>
+      </div>
+    </div>
+
+    <div class="how">
+      <h3>How it works</h3>
+      <ol>
+        <li>Enter any <strong>Session ID</strong> (or leave blank for random)</li>
+        <li>Tap <strong>Send</strong> on your iPhone to start streaming</li>
+        <li>Open <strong>View</strong> on your PC with the same ID</li>
+      </ol>
+    </div>
+  </div>
+
+  <script>
+    const inp = document.getElementById("sessionInput");
+    const chars = "abcdefghijklmnopqrstuvwxyz";
+    function randomID(len = 8) { let s = ""; for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * chars.length)]; return s; }
+
+    document.getElementById("goSend").addEventListener("click", e => {
+      e.preventDefault();
+      const id = inp.value.trim() || randomID();
+      window.location.href = "send.html?id=" + encodeURIComponent(id);
+    });
+
+    document.getElementById("goView").addEventListener("click", e => {
+      e.preventDefault();
+      const id = inp.value.trim() || randomID();
+      window.location.href = "view.html?id=" + encodeURIComponent(id);
+    });
+  </script>
+</body>
+</html>

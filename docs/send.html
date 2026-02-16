@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>FollowCam — Sending</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* Keep screen awake indicator */
+    .awake-badge {
+      position: absolute; top: 0.5rem; right: 0.5rem;
+      background: rgba(0,0,0,0.6); color: var(--success);
+      padding: 0.2rem 0.5rem; border-radius: 4px;
+      font-size: 0.65rem; z-index: 5;
+    }
+    /* Camera select */
+    .cam-select {
+      position: absolute; bottom: 0.5rem; left: 0.5rem; z-index: 5;
+    }
+    .cam-select select {
+      background: rgba(0,0,0,0.6); color: var(--text); border: 1px solid var(--border);
+      padding: 0.3rem 0.5rem; border-radius: 6px; font-size: 0.75rem;
+      max-width: 180px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <!-- Top bar -->
+    <div class="topbar">
+      <a href="index.html" class="logo" style="text-decoration:none;">FollowCam</a>
+      <span class="session-id" id="sessionLabel">—</span>
+      <div class="status">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">Idle</span>
+      </div>
+    </div>
+
+    <!-- Video preview -->
+    <div class="video-container">
+      <video id="localVideo" autoplay playsinline muted></video>
+      <div class="stats-overlay" id="statsOverlay" style="display:none;"></div>
+      <div class="awake-badge" id="awakeBadge" style="display:none;">🔒 Screen locked</div>
+      <div class="cam-select" id="camSelectWrap" style="display:none;">
+        <select id="camSelect"></select>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button class="ctrl-btn" id="btnFlip" title="Flip camera">🔄</button>
+      <button class="ctrl-btn go-live" id="btnLive" title="Go Live">GO<br>LIVE</button>
+      <button class="ctrl-btn" id="btnMute" title="Mute audio">🔊</button>
+    </div>
+  </div>
+
+  <script src="followcam.js"></script>
+  <script>
+    const sessionID = new URLSearchParams(window.location.search).get("id") || "default";
+    document.getElementById("sessionLabel").textContent = "ID: " + sessionID;
+
+    const video = document.getElementById("localVideo");
+    const statusDot = document.getElementById("statusDot");
+    const statusText = document.getElementById("statusText");
+    const statsOverlay = document.getElementById("statsOverlay");
+    const btnLive = document.getElementById("btnLive");
+    const btnFlip = document.getElementById("btnFlip");
+    const btnMute = document.getElementById("btnMute");
+    const camSelect = document.getElementById("camSelect");
+
+    let isLive = false;
+    let isMuted = false;
+    let facingMode = "environment"; // start with rear camera
+    let wakeLock = null;
+
+    // ── Status updates ──
+    FollowCam.onStatusChange = (state) => {
+      statusText.textContent = state.charAt(0).toUpperCase() + state.slice(1);
+      statusDot.className = "status-dot";
+      if (state === "streaming" || state === "connected") statusDot.classList.add("connected");
+      else if (state === "connecting") statusDot.classList.add("connecting");
+    };
+
+    FollowCam.onStatsUpdate = (s) => {
+      statsOverlay.style.display = "block";
+      statsOverlay.innerHTML = [
+        `📐 ${s.resolution}`,
+        `🎯 ${s.fps} fps`,
+        `📡 ${s.bitrate}`,
+        `🎬 ${s.codec}`,
+        `⏱ RTT ${s.rtt}`,
+        s.packetsLost > 0 ? `⚠️ Lost: ${s.packetsLost}` : null
+      ].filter(Boolean).join("<br>");
+    };
+
+    FollowCam.onError = (msg) => {
+      alert("Error: " + msg);
+    };
+
+    // ── Wake Lock (keep iPhone screen on) ──
+    async function requestWakeLock() {
+      try {
+        if ("wakeLock" in navigator) {
+          wakeLock = await navigator.wakeLock.request("screen");
+          document.getElementById("awakeBadge").style.display = "none";
+          wakeLock.addEventListener("release", () => {
+            document.getElementById("awakeBadge").style.display = "block";
+          });
+        }
+      } catch (e) {
+        console.warn("Wake lock failed:", e);
+      }
+    }
+
+    // Re-acquire wake lock when page becomes visible again
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && isLive) {
+        requestWakeLock();
+      }
+    });
+
+    // ── Go Live ──
+    btnLive.addEventListener("click", async () => {
+      if (isLive) {
+        // Stop
+        FollowCam.disconnect();
+        video.srcObject = null;
+        isLive = false;
+        btnLive.classList.remove("active");
+        btnLive.innerHTML = "GO<br>LIVE";
+        statsOverlay.style.display = "none";
+        if (wakeLock) { wakeLock.release(); wakeLock = null; }
+        return;
+      }
+
+      btnLive.innerHTML = "⏳";
+
+      try {
+        const stream = await FollowCam.startCamera();
+        video.srcObject = stream;
+
+        // Enumerate cameras for the select dropdown
+        populateCameras();
+
+        await FollowCam.connectSignaling(sessionID, "sender");
+
+        isLive = true;
+        btnLive.classList.add("active");
+        btnLive.innerHTML = "⏹<br>STOP";
+
+        await requestWakeLock();
+      } catch (e) {
+        btnLive.innerHTML = "GO<br>LIVE";
+        console.error(e);
+      }
+    });
+
+    // ── Flip Camera ──
+    btnFlip.addEventListener("click", async () => {
+      if (!isLive) return;
+      facingMode = facingMode === "environment" ? "user" : "environment";
+
+      // Stop current tracks
+      if (FollowCam.localStream) {
+        FollowCam.localStream.getVideoTracks().forEach(t => t.stop());
+      }
+
+      try {
+        const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
+        const constraints = {
+          video: {
+            width: isSafari ? { min: 1280, ideal: 2560 } : { min: 1280, ideal: 2560, max: 2560 },
+            height: isSafari ? { min: 720, ideal: 1440 } : { min: 720, ideal: 1440, max: 1440 },
+            frameRate: { ideal: 60, max: 60 },
+            facingMode: { ideal: facingMode }
+          },
+          audio: false
+        };
+
+        const newStream = await navigator.mediaDevices.getUserMedia(constraints);
+        const newTrack = newStream.getVideoTracks()[0];
+        if ("contentHint" in newTrack) newTrack.contentHint = "detail";
+
+        // Replace track in the peer connection senders
+        // This avoids renegotiation
+        video.srcObject.getVideoTracks().forEach(t => video.srcObject.removeTrack(t));
+        video.srcObject.addTrack(newTrack);
+      } catch (e) {
+        console.error("Flip failed:", e);
+      }
+    });
+
+    // ── Mute ──
+    btnMute.addEventListener("click", () => {
+      if (!FollowCam.localStream) return;
+      isMuted = !isMuted;
+      FollowCam.localStream.getAudioTracks().forEach(t => { t.enabled = !isMuted; });
+      btnMute.textContent = isMuted ? "🔇" : "🔊";
+    });
+
+    // ── Camera enumeration ──
+    async function populateCameras() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cameras = devices.filter(d => d.kind === "videoinput");
+        if (cameras.length > 1) {
+          const wrap = document.getElementById("camSelectWrap");
+          wrap.style.display = "block";
+          camSelect.innerHTML = cameras.map((c, i) =>
+            `<option value="${c.deviceId}">${c.label || "Camera " + (i + 1)}</option>`
+          ).join("");
+        }
+      } catch (e) { /* ignore */ }
+    }
+  </script>
+</body>
+</html>

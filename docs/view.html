@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FollowCam — Viewing</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* Viewer: maximize video real estate */
+    .video-container video { cursor: pointer; }
+    .video-container.theater {
+      position: fixed; inset: 0; z-index: 100;
+      background: #000;
+    }
+    .video-container.theater video { object-fit: contain; }
+    .video-container.theater .stats-overlay { top: 1rem; left: 1rem; }
+    .video-container.theater .fullscreen-btn { bottom: 1rem; right: 1rem; }
+    .reconnect-bar {
+      position: absolute; bottom: 4rem; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.8); padding: 0.5rem 1rem; border-radius: 8px;
+      color: var(--text-dim); font-size: 0.85rem; z-index: 10; display: none;
+      cursor: pointer;
+    }
+    .reconnect-bar:hover { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <!-- Top bar -->
+    <div class="topbar" id="topbar">
+      <a href="index.html" class="logo" style="text-decoration:none;">FollowCam</a>
+      <span class="session-id" id="sessionLabel">—</span>
+      <div class="status">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">Waiting</span>
+      </div>
+    </div>
+
+    <!-- Video -->
+    <div class="video-container" id="videoContainer">
+      <video id="remoteVideo" autoplay playsinline></video>
+
+      <!-- Waiting state -->
+      <div class="waiting-msg" id="waitingMsg">
+        <div class="spinner"></div><br>
+        Waiting for sender to connect…<br>
+        <small style="color:var(--text-dim)">Session: <span id="waitSessionID"></span></small>
+      </div>
+
+      <div class="stats-overlay" id="statsOverlay" style="display:none;"></div>
+      <button class="fullscreen-btn" id="btnFullscreen" style="display:none;">⛶ Fullscreen</button>
+      <div class="reconnect-bar" id="reconnectBar">Connection lost — tap to reconnect</div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls" id="controls">
+      <button class="ctrl-btn" id="btnStats" title="Toggle stats">📊</button>
+      <button class="ctrl-btn" id="btnTheater" title="Theater mode">🖥</button>
+      <button class="ctrl-btn" id="btnVolume" title="Volume">🔊</button>
+    </div>
+  </div>
+
+  <script src="followcam.js"></script>
+  <script>
+    const sessionID = new URLSearchParams(window.location.search).get("id") || "default";
+    document.getElementById("sessionLabel").textContent = "ID: " + sessionID;
+    document.getElementById("waitSessionID").textContent = sessionID;
+
+    const video = document.getElementById("remoteVideo");
+    const statusDot = document.getElementById("statusDot");
+    const statusText = document.getElementById("statusText");
+    const statsOverlay = document.getElementById("statsOverlay");
+    const waitingMsg = document.getElementById("waitingMsg");
+    const reconnectBar = document.getElementById("reconnectBar");
+    const videoContainer = document.getElementById("videoContainer");
+
+    let showStats = true;
+    let isMuted = false;
+
+    // ── Callbacks ──
+    FollowCam.onStatusChange = (state) => {
+      statusText.textContent = state.charAt(0).toUpperCase() + state.slice(1);
+      statusDot.className = "status-dot";
+
+      if (state === "streaming") {
+        statusDot.classList.add("connected");
+        waitingMsg.style.display = "none";
+        reconnectBar.style.display = "none";
+        document.getElementById("btnFullscreen").style.display = "block";
+      } else if (state === "connected" || state === "connecting") {
+        statusDot.classList.add("connecting");
+      } else if (state === "disconnected" || state === "failed") {
+        reconnectBar.style.display = "block";
+      }
+    };
+
+    FollowCam.onRemoteStream = (stream) => {
+      console.log("[Viewer] Got remote stream, tracks:", stream.getTracks().map(t => t.kind));
+      video.srcObject = stream;
+      waitingMsg.style.display = "none";
+
+      // Attempt autoplay
+      video.play().catch(e => {
+        console.warn("Autoplay blocked, user interaction needed:", e);
+        video.muted = true;
+        video.play();
+      });
+    };
+
+    FollowCam.onStatsUpdate = (s) => {
+      if (!showStats) { statsOverlay.style.display = "none"; return; }
+      statsOverlay.style.display = "block";
+      statsOverlay.innerHTML = [
+        `📐 ${s.resolution}`,
+        `🎯 ${s.fps} fps`,
+        `📡 ${s.bitrate}`,
+        `🎬 ${s.codec}`,
+        `⏱ RTT ${s.rtt}`,
+        `📉 Jitter ${s.jitter}`,
+        s.packetsLost > 0 ? `⚠️ Lost: ${s.packetsLost}` : null
+      ].filter(Boolean).join("<br>");
+    };
+
+    FollowCam.onError = (msg) => {
+      console.error("Error:", msg);
+    };
+
+    // ── Connect ──
+    function connect() {
+      reconnectBar.style.display = "none";
+      waitingMsg.style.display = "flex";
+      waitingMsg.style.flexDirection = "column";
+      waitingMsg.style.alignItems = "center";
+      FollowCam.connectSignaling(sessionID, "viewer").catch(e => {
+        console.error("Connect failed:", e);
+        reconnectBar.style.display = "block";
+      });
+    }
+
+    connect();
+
+    // ── Reconnect ──
+    reconnectBar.addEventListener("click", () => {
+      FollowCam.disconnect();
+      connect();
+    });
+
+    // ── Toggle stats ──
+    document.getElementById("btnStats").addEventListener("click", () => {
+      showStats = !showStats;
+      if (!showStats) statsOverlay.style.display = "none";
+    });
+
+    // ── Theater mode ──
+    document.getElementById("btnTheater").addEventListener("click", () => {
+      videoContainer.classList.toggle("theater");
+      if (videoContainer.classList.contains("theater")) {
+        document.getElementById("topbar").style.display = "none";
+        document.getElementById("controls").style.display = "none";
+      } else {
+        document.getElementById("topbar").style.display = "flex";
+        document.getElementById("controls").style.display = "flex";
+      }
+    });
+
+    // Exit theater on Escape
+    document.addEventListener("keydown", e => {
+      if (e.key === "Escape" && videoContainer.classList.contains("theater")) {
+        videoContainer.classList.remove("theater");
+        document.getElementById("topbar").style.display = "flex";
+        document.getElementById("controls").style.display = "flex";
+      }
+    });
+
+    // ── Fullscreen ──
+    document.getElementById("btnFullscreen").addEventListener("click", () => {
+      if (video.requestFullscreen) video.requestFullscreen();
+      else if (video.webkitRequestFullscreen) video.webkitRequestFullscreen();
+      else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen(); // iOS Safari
+    });
+
+    // ── Volume ──
+    document.getElementById("btnVolume").addEventListener("click", () => {
+      isMuted = !isMuted;
+      video.muted = isMuted;
+      document.getElementById("btnVolume").textContent = isMuted ? "🔇" : "🔊";
+    });
+
+    // Double-click video for fullscreen
+    video.addEventListener("dblclick", () => {
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+      } else if (video.requestFullscreen) {
+        video.requestFullscreen();
+      } else if (video.webkitRequestFullscreen) {
+        video.webkitRequestFullscreen();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -87,11 +87,29 @@ const FollowCam = (() => {
 
       onStatusChange("connecting");
       log("Connecting to signaling server:", WSS_URL);
+      
+      // Timeout if server doesn't respond in 10s
+      const connectTimeout = setTimeout(() => {
+        if (ws && ws.readyState !== WebSocket.OPEN) {
+          err("Connection timeout - server not responding");
+          onError("Connection timeout. Check your internet connection.");
+          ws.close();
+          reject(new Error("Connection timeout"));
+        }
+      }, 10000);
 
       ws = new WebSocket(WSS_URL);
+      
+      ws.onerror = (e) => {
+        clearTimeout(connectTimeout);
+        err("WebSocket error:", e);
+        onError("Cannot connect to signaling server. Check network.");
+        reject(e);
+      };
 
       ws.onopen = () => {
-        log("WebSocket connected");
+        clearTimeout(connectTimeout);
+        log("✓ WebSocket connected to:", WSS_URL);
         onStatusChange("connecting");
         // Wait for server to assign UUID before sending requests
         resolve();
@@ -105,12 +123,6 @@ const FollowCam = (() => {
         } catch (e) {
           warn("Bad signaling message:", e);
         }
-      };
-
-      ws.onerror = (e) => {
-        err("WebSocket error:", e);
-        onError("Signaling connection failed");
-        reject(e);
       };
 
       ws.onclose = (e) => {
@@ -141,16 +153,16 @@ const FollowCam = (() => {
     // Server assigns us a UUID on connect
     if (msg.UUID && !msg.description && !msg.candidate && !msg.request) {
       myUUID = msg.UUID;
-      log("Server assigned UUID:", myUUID);
+      log("✓ Server assigned UUID:", myUUID);
       onStatusChange("connected");
 
       // Now send our request
       if (myRole === "sender") {
         wsSend({ request: "seed", streamID: myStreamID });
-        log("Seeded stream:", myStreamID);
+        log("✓ Seeded stream:", myStreamID);
       } else if (myRole === "viewer") {
         wsSend({ request: "offerSDP", streamID: myStreamID });
-        log("Requested stream:", myStreamID);
+        log("✓ Requesting stream:", myStreamID);
       }
       return;
     }

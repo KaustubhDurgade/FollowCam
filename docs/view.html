@@ -50,6 +50,9 @@
       <div class="stats-overlay" id="statsOverlay" style="display:none;"></div>
       <button class="fullscreen-btn" id="btnFullscreen" style="display:none;">⛶ Fullscreen</button>
       <div class="reconnect-bar" id="reconnectBar">Connection lost — tap to reconnect</div>
+      
+      <!-- Debug log -->
+      <div id="debugLog" style="position:absolute;top:3rem;left:0.5rem;right:0.5rem;background:rgba(0,0,0,0.85);color:#0f0;font-family:monospace;font-size:10px;padding:0.5rem;border-radius:6px;max-height:200px;overflow-y:auto;z-index:20;display:none;"></div>
     </div>
 
     <!-- Controls -->
@@ -76,6 +79,23 @@
 
     let showStats = true;
     let isMuted = false;
+
+    // Debug logging overlay
+    const debugLog = document.getElementById("debugLog");
+    const originalConsole = { log: console.log, warn: console.warn, error: console.error };
+    let debugLines = [];
+    
+    function addDebugLine(prefix, ...args) {
+      const line = prefix + " " + args.map(a => typeof a === 'object' ? JSON.stringify(a).substring(0,100) : a).join(" ");
+      debugLines.push(line);
+      if (debugLines.length > 20) debugLines.shift();
+      debugLog.innerHTML = debugLines.join("<br>");
+      debugLog.style.display = "block";
+    }
+    
+    console.log = function(...args) { addDebugLine("[LOG]", ...args); originalConsole.log(...args); };
+    console.warn = function(...args) { addDebugLine("[WARN]", ...args); originalConsole.warn(...args); };
+    console.error = function(...args) { addDebugLine("[ERROR]", ...args); originalConsole.error(...args); };
 
     // ── Callbacks ──
     FollowCam.onStatusChange = (state) => {

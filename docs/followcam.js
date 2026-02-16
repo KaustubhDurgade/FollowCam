@@ -92,24 +92,15 @@ const FollowCam = (() => {
 
       ws.onopen = () => {
         log("WebSocket connected");
-        onStatusChange("connected");
-
-        if (role === "sender") {
-          // Announce our stream
-          wsSend({ request: "seed", streamID: myStreamID });
-          log("Seeded stream:", myStreamID);
-        } else {
-          // Request to view the stream
-          wsSend({ request: "offerSDP", streamID: myStreamID });
-          log("Requested stream:", myStreamID);
-        }
-
+        onStatusChange("connecting");
+        // Wait for server to assign UUID before sending requests
         resolve();
       };
 
       ws.onmessage = (evt) => {
         try {
           const msg = JSON.parse(evt.data);
+          log("← Received:", JSON.stringify(msg).substring(0, 200));
           handleSignalingMessage(msg);
         } catch (e) {
           warn("Bad signaling message:", e);
@@ -138,16 +129,30 @@ const FollowCam = (() => {
 
   function wsSend(obj) {
     if (ws && ws.readyState === WebSocket.OPEN) {
+      log("→ Sending:", JSON.stringify(obj).substring(0, 200));
       ws.send(JSON.stringify(obj));
+    } else {
+      warn("Cannot send, WebSocket not ready:", ws?.readyState);
     }
   }
 
   // ── Signaling Message Handler ──────────────────────────────
   function handleSignalingMessage(msg) {
     // Server assigns us a UUID on connect
-    if (msg.UUID && msg.from === undefined && msg.description === undefined && msg.candidate === undefined) {
-      // Initial session info from server
-      log("Server msg:", msg);
+    if (msg.UUID && !msg.description && !msg.candidate && !msg.request) {
+      myUUID = msg.UUID;
+      log("Server assigned UUID:", myUUID);
+      onStatusChange("connected");
+
+      // Now send our request
+      if (myRole === "sender") {
+        wsSend({ request: "seed", streamID: myStreamID });
+        log("Seeded stream:", myStreamID);
+      } else if (myRole === "viewer") {
+        wsSend({ request: "offerSDP", streamID: myStreamID });
+        log("Requested stream:", myStreamID);
+      }
+      return;
     }
 
     const remoteUUID = msg.UUID || msg.from;
@@ -274,6 +279,10 @@ const FollowCam = (() => {
 
   // ── Sender: Create Offer ──────────────────────────────────
   async function createOfferForViewer(remoteUUID) {
+    if (!remoteUUID) {
+      err("No remote UUID for createOffer");
+      return;
+    }
     const pc = createPeerConnection(remoteUUID);
 
     // Add local tracks
@@ -299,13 +308,13 @@ const FollowCam = (() => {
 
       await pc.setLocalDescription(offer);
 
-      wsSend({
+      const offerMsg = {
         description: pc.localDescription.toJSON(),
         UUID: remoteUUID,
         streamID: myStreamID
-      });
-
-      log("Offer sent to:", remoteUUID);
+      };
+      wsSend(offerMsg);
+      log("Offer sent to:", remoteUUID, "SDP type:", offerMsg.description.type);
 
       // Flush buffered ICE candidates
       flushCandidates(remoteUUID);
@@ -325,13 +334,13 @@ const FollowCam = (() => {
       answer.sdp = enhanceSDP(answer.sdp);
       await pc.setLocalDescription(answer);
 
-      wsSend({
+      const answerMsg = {
         description: pc.localDescription.toJSON(),
         UUID: remoteUUID,
         streamID: myStreamID
-      });
-
-      log("Answer sent to:", remoteUUID);
+      };
+      wsSend(answerMsg);
+      log("Answer sent to:", remoteUUID, "SDP type:", answerMsg.description.type);
 
       // Flush buffered ICE candidates
       flushCandidates(remoteUUID);

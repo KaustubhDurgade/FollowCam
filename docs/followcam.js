@@ -110,24 +110,32 @@ const FollowCam = (() => {
       ws.onopen = () => {
         clearTimeout(connectTimeout);
         log("✓ WebSocket connected to:", WSS_URL);
+        log("Waiting for server to send UUID...");
         onStatusChange("connecting");
         
-        // Send initial message to trigger server response
-        // VDO.Ninja server expects some initial message to assign UUID
-        ws.send(JSON.stringify({ request: "hello" }));
-        log("→ Sent hello to server");
+        // Fallback: if server doesn't send UUID in 2s, send request anyway
+        setTimeout(() => {
+          if (!myUUID && ws.readyState === WebSocket.OPEN) {
+            warn("No UUID after 2s, sending request anyway");
+            if (myRole === "sender") {
+              wsSend({ request: "seed", streamID: myStreamID });
+            } else if (myRole === "viewer") {
+              wsSend({ request: "offerSDP", streamID: myStreamID });
+            }
+          }
+        }, 2000);
         
-        // Wait for server to assign UUID before sending requests
         resolve();
       };
 
       ws.onmessage = (evt) => {
+        log("← RAW message:", evt.data);
         try {
           const msg = JSON.parse(evt.data);
-          log("← Received:", JSON.stringify(msg).substring(0, 200));
+          log("← Parsed:", JSON.stringify(msg).substring(0, 200));
           handleSignalingMessage(msg);
         } catch (e) {
-          warn("Bad signaling message:", e);
+          warn("Bad signaling message:", e, "Data was:", evt.data);
         }
       };
 
@@ -156,10 +164,10 @@ const FollowCam = (() => {
 
   // ── Signaling Message Handler ──────────────────────────────
   function handleSignalingMessage(msg) {
-    log("Processing message, keys:", Object.keys(msg).join(","));
+    log("Processing message type:", typeof msg, "Keys:", Object.keys(msg).join(","));
     
-    // Server assigns us a UUID on connect
-    if (msg.UUID && !msg.description && !msg.candidate && !msg.request) {
+    // If no UUID assigned yet and message contains a UUID, assume it's our assignment
+    if (!myUUID && msg.UUID) {
       myUUID = msg.UUID;
       log("✓ Server assigned UUID:", myUUID);
       onStatusChange("connected");
@@ -171,6 +179,17 @@ const FollowCam = (() => {
       } else if (myRole === "viewer") {
         wsSend({ request: "offerSDP", streamID: myStreamID });
         log("✓ Requesting stream:", myStreamID);
+      }
+      return;
+    }
+    
+    // If we still don't have UUID after 2s, send request anyway
+    if (!myUUID) {
+      warn("No UUID received yet, sending request anyway...");
+      if (myRole === "sender") {
+        wsSend({ request: "seed", streamID: myStreamID });
+      } else if (myRole === "viewer") {
+        wsSend({ request: "offerSDP", streamID: myStreamID });
       }
       return;
     }

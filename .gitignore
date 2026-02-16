@@ -1,6 +1,10 @@
 # Ignore vdo.ninja source (we only keep our docs/)
 vdo.ninja/
 
+# Node.js
+node_modules/
+package-lock.json
+
 # Python
 __pycache__/
 *.py[cod]

@@ -109,33 +109,35 @@ const FollowCam = (() => {
 
       ws.onopen = () => {
         clearTimeout(connectTimeout);
-        log("✓ WebSocket connected to:", WSS_URL);
-        log("Waiting for server to send UUID...");
+        log("✓ WebSocket OPEN, readyState:", ws.readyState);
         onStatusChange("connecting");
         
-        // Fallback: if server doesn't send UUID in 2s, send request anyway
+        // IMMEDIATELY try sending (don't wait for UUID)
         setTimeout(() => {
-          if (!myUUID && ws.readyState === WebSocket.OPEN) {
-            warn("No UUID after 2s, sending request anyway");
-            if (myRole === "sender") {
-              wsSend({ request: "seed", streamID: myStreamID });
-            } else if (myRole === "viewer") {
-              wsSend({ request: "offerSDP", streamID: myStreamID });
-            }
+          log("🔥 Fallback timeout fired! Sending request...");
+          if (myRole === "sender") {
+            const msg = { request: "seed", streamID: myStreamID };
+            log("→ Sending seed:", JSON.stringify(msg));
+            ws.send(JSON.stringify(msg));
+          } else if (myRole === "viewer") {
+            const msg = { request: "offerSDP", streamID: myStreamID };
+            log("→ Sending offerSDP:", JSON.stringify(msg));
+            ws.send(JSON.stringify(msg));
           }
-        }, 2000);
+        }, 1000); // Try after just 1 second
         
         resolve();
       };
 
       ws.onmessage = (evt) => {
-        log("← RAW message:", evt.data);
+        log("🔵 RAW MESSAGE RECEIVED!");
+        log("← RAW data:", evt.data);
         try {
           const msg = JSON.parse(evt.data);
-          log("← Parsed:", JSON.stringify(msg).substring(0, 200));
+          log("← Parsed:", JSON.stringify(msg).substring(0, 300));
           handleSignalingMessage(msg);
         } catch (e) {
-          warn("Bad signaling message:", e, "Data was:", evt.data);
+          warn("❌ Parse error:", e.message, "Data:", evt.data);
         }
       };
 
